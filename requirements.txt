@@ -1,0 +1,4 @@
+# Data pipeline (the web app itself has no build step)
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.7   # point-in-polygon for clipping FIRMS API results to country borders

@@ -1,0 +1,23 @@
+# FIRMS API key: personal credential, never commit or publish
+firms_map_key.txt
+.env
+
+# Downloaded inputs (~1.3 GB, recreated by pipeline/download.py). Anchored to the root:
+# web/data/ is the built website data and IS committed.
+/Data/
+/data/
+
+# Local working files
+Nasa_Winners.xlsx
+*.ipynb
+.ipynb_checkpoints/
+
+# Python / tooling
+__pycache__/
+*.py[cod]
+*.part
+.venv/
+venv/
+.vscode/
+.DS_Store
+Thumbs.db
