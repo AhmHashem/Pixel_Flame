@@ -30,7 +30,14 @@ Demo countries: **Sudan, Nigeria and Egypt**. The record runs from 1 Nov 2000 to
 
 ## Quick start: view the app
 
-The `web/` folder is a static site and already contains the built data, so no build step is needed.
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/AhmHashem/Pixel_Flame?quickstart=1)
+
+**In the browser, no download:** click the button above, then **Create codespace**. After about a minute
+the app opens in a new tab. If the browser blocked that tab, open the **Ports** panel and click the link
+next to *Pixel Flame app*.
+
+**On your own computer:** the `web/` folder is a static site and already contains the built data, so no
+build step is needed.
 
 ```powershell
 python -m http.server 8765 --directory web
@@ -71,6 +78,7 @@ web/
   style.css      layout, light/dark themes, validated colour ramps
   data/          built data: one JSON per country, live hotspots, per-year hotspot files
 docs/            screenshot
+.devcontainer/   GitHub Codespaces setup (serves web/ on port 8765)
 ```
 
 ## Method

@@ -1,0 +1,14 @@
+{
+  // GitHub Codespaces: opens the repo in the browser and starts the web app automatically.
+  "name": "Pixel Flame",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "forwardPorts": [8765],
+  "portsAttributes": {
+    "8765": { "label": "Pixel Flame app", "onAutoForward": "openBrowser" }
+  },
+  // The app is a static site with its data already built, so serving web/ is all it needs.
+  "postAttachCommand": "python -m http.server 8765 --directory web",
+  "customizations": {
+    "codespaces": { "openFiles": ["README.md"] }
+  }
+}
