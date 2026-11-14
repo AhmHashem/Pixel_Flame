@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -8,7 +8,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1c1 3 4 4 4 8a4 4 0 0 1-8 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 0-7z' fill='%23eb6834'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css">
-  <link rel="stylesheet" href="style.css?v=2026-11-14c">
+  <link rel="stylesheet" href="style.css?v=2026-11-14d">
 </head>
 <body>
 <header>
@@ -41,7 +41,7 @@
       <label>Lon <input id="pt-lon" type="number" step="any" min="-180" max="180" placeholder="30.20" inputmode="decimal"></label>
       <label>Radius <input id="pt-rad" type="number" min="1" max="1000" step="any" value="50" inputmode="decimal"> km</label>
       <button type="submit">Analyse point</button>
-      <span class="sub">or draw a shape with the tools on the map Â· clicking the map fills in lat/lon</span>
+      <span class="sub">or draw a shape with the tools on the map · clicking the map fills in lat/lon</span>
     </form>
     <div class="aoi-info"><span id="aoi-text"></span> <button id="reset-aoi" hidden>Use whole country</button></div>
   </section>
@@ -172,15 +172,15 @@
 </main>
 
 <footer id="footer">
-  Data: NASA FIRMS â€” MODIS Collection 6.1 (1 km) and VIIRS 375 m (S-NPP, NOAA-20, NOAA-21) active fire products.
+  Data: NASA FIRMS — MODIS Collection 6.1 (1 km) and VIIRS 375 m (S-NPP, NOAA-20, NOAA-21) active fire products.
   Historical record from standard-processing yearly archives; live layer from the near-real-time 7-day files.
-  Basemap Â© OpenStreetMap contributors.
+  Basemap © Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS user community.
 </footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
-<script src="analysis.js?v=2026-11-14c"></script>
-<script src="app.js?v=2026-11-14c"></script>
+<script src="analysis.js?v=2026-11-14d"></script>
+<script src="app.js?v=2026-11-14d"></script>
 </body>
 </html>

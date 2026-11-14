@@ -138,7 +138,9 @@ docs/            screenshot
 - [Natural Earth](https://www.naturalearthdata.com/) 1:10m admin-0 country borders (public domain).
 - [Leaflet](https://leafletjs.com/) and [Leaflet.draw](https://github.com/Leaflet/Leaflet.draw) for the
   map, [Apache ECharts](https://echarts.apache.org/) for the charts, and
-  [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors for basemap tiles.
+  Esri Light/Dark Gray Canvas basemaps (Esri, HERE, Garmin,
+  [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors and the GIS user community).
+  These tiles need no API key or Referer, so the map also works inside GitHub Codespaces.
 
 ## Known limits
 

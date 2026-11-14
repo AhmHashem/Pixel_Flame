@@ -15,7 +15,8 @@
   --band: #52514e;
   --zero: #efeee9;
   /* Ramps checked with the dataviz palette validator: one hue, monotone lightness, adjacent
-     dL >= 0.06 (including "0" vs the first step); age dots clear 2:1 on the map tiles. */
+     dL >= 0.06 (including "0" vs the first step); age dots clear 2:1 on the Esri basemap land
+     (#efefef light, #3f3f41 dark). */
   --heat: #f7c1a3, #f29a6f, #eb6834, #c9501f, #9d3b14, #6c280c, #471a08;
   --div: #256abf, #9ec5f4, #e6e5e0, #f3a3a2, #d03b3b;
   --age: #6b0f0f, #a8231f, #d4502a, #ec835a;
@@ -44,7 +45,7 @@
     --zero: #262624;
     --heat: #6e3419, #9a441d, #c9551f, #eb6834, #f4935f, #fbc3a0, #fde4d4;
     --div: #5598e7, #1f4a80, #383835, #8a3030, #e66767;
-    --age: #ffa08f, #ff6b5e, #d9503c, #a8503a;
+    --age: #ffc2b5, #ff8a78, #f2604a, #cc5a3e;
 
   }
 }
@@ -66,7 +67,7 @@
   --zero: #262624;
   --heat: #6e3419, #9a441d, #c9551f, #eb6834, #f4935f, #fbc3a0, #fde4d4;
   --div: #5598e7, #1f4a80, #383835, #8a3030, #e66767;
-  --age: #ffa08f, #ff6b5e, #d9503c, #a8503a;
+  --age: #ffc2b5, #ff8a78, #f2604a, #cc5a3e;
 
 }
 
@@ -169,10 +170,6 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 footer { padding: 8px 16px 24px; font-size: 12px; color: var(--muted); }
 
 .leaflet-container { background: var(--surface); font: inherit; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.9); }
-}
-:root[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.9); }
 .leaflet-popup-content { font-size: 13px; line-height: 1.5; }
 .empty { padding: 24px; text-align: center; color: var(--text-2); }
 

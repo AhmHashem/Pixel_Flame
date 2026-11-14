@@ -117,10 +117,13 @@ function saveBlob(blob, name) {
 }
 
 // ---------- map ----------
-let map, tiles, cellLayer, hotLayer, drawn;
+let map, tiles, labels, cellLayer, hotLayer, drawn;
 
 function initMap() {
   map = L.map('map', { preferCanvas: true, minZoom: 3 }).setView([15, 20], 4);
+  const labelPane = map.createPane('labels');      // place names above the grid cells, below hotspots
+  labelPane.style.zIndex = 420;
+  labelPane.style.pointerEvents = 'none';
   setTiles();
   map.createPane('hot').style.zIndex = 450;
   cellLayer = L.layerGroup().addTo(map);
@@ -144,11 +147,20 @@ function initMap() {
   });
 }
 
+/* Esri light/dark grey canvas: quiet basemaps that let the fire layers stand out, with place labels on
+   their own layer above the grid cells. They need no API key and no Referer, so they also work on hosted
+   dev domains such as GitHub Codespaces, where tile.openstreetmap.org blocks requests (and CARTO now
+   requires a key). */
+const ESRI_CANVAS = name => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${name}/MapServer/tile/{z}/{y}/{x}`;
 function setTiles() {
   if (tiles) tiles.remove();
-  tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 18,
+  if (labels) labels.remove();
+  const tone = matchMedia('(prefers-color-scheme: dark)').matches ? 'Dark' : 'Light';
+  const opts = { maxZoom: 16, referrerPolicy: 'strict-origin-when-cross-origin' };
+  tiles = L.tileLayer(ESRI_CANVAS(`World_${tone}_Gray_Base`), {
+    ...opts, attribution: 'Basemap © Esri, HERE, Garmin, © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, and the GIS user community',
   }).addTo(map);
+  labels = L.tileLayer(ESRI_CANVAS(`World_${tone}_Gray_Reference`), { ...opts, pane: 'labels' }).addTo(map);
 }
 
 /* Fast canvas layer for ~200k live hotspots, coloured by time since detection. */
