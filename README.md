@@ -143,8 +143,16 @@ docs/            screenshot
      New Year work. A shift between the two decades counts as clear only when it exceeds twice its
      standard error from year-to-year scatter.
 
+## Submission
+
+Everything submitted to NASA Space Apps 2026 is in [`submission/`](submission/): the
+[7-slide demo](submission/Pixel_Flame_Demo_Slides.pdf), the [project page text](submission/PROJECT_PAGE.md)
+and screenshots.
+
 ## Versions
 
+- **v3.0.0 (final submission):** the version 2 app plus the complete submission package: demo slides,
+  project page text and screenshots.
 - **v2.0.0:** similar past years, fire-season shift and countdown, and the printable situation report
   (current view, one country, or all countries).
 - **v1.0.0:** harmonized calendar 2000–2026, early warning, outlook, area and period selection, CSV/PNG

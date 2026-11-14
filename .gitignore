@@ -7,9 +7,6 @@ firms_map_key.txt
 /Data/
 /data/
 
-# Submission package (contains team contact emails; share the PDF via its own public link)
-/submission/
-
 # Local working files
 Nasa_Winners.xlsx
 *.ipynb

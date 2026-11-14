@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pixel Flame: NASA Space Apps 2026 demo</title>
+<style>
+  @page { size: 1920px 1080px; margin: 0; }
+  :root { --ink: #111; --muted: #52514e; --dim: #6b6a66; --line: #e1e0d9; --orange: #eb6834; --orange-d: #c9501f; --blue: #2a78d6; --paper: #fcfcfb; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #888; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: var(--ink); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .slide { width: 1920px; height: 1080px; position: relative; overflow: hidden; background: var(--paper); padding: 72px 96px 88px; break-after: page; margin: 0 auto 24px; }
+  .slide:last-child { break-after: auto; }
+  @media print { html, body { background: none; } .slide { margin: 0; } }
+  .kicker { font-size: 24px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--orange-d); }
+  h1 { font-size: 64px; line-height: 1.08; margin: 10px 0 36px; letter-spacing: -.01em; }
+  h2 { font-size: 30px; margin: 0 0 10px; }
+  p, li { font-size: 30px; line-height: 1.35; }
+  ul { margin: 0; padding-left: 1.1em; } li { margin-bottom: 18px; }
+  li::marker { color: var(--orange); }
+  strong { font-weight: 700; }
+  .muted { color: var(--muted); } .dim { color: var(--dim); }
+  .foot { position: absolute; left: 96px; right: 96px; bottom: 34px; display: flex; justify-content: space-between; font-size: 20px; color: var(--dim); border-top: 1px solid var(--line); padding-top: 14px; }
+  .shot { border-radius: 18px; box-shadow: 0 10px 40px rgba(0,0,0,.18); border: 1px solid var(--line); background: #fff; overflow: hidden; }
+  .shot img { display: block; width: 100%; }
+  .crop img { object-fit: cover; object-position: top; height: 100%; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: start; }
+  .stat .n { font-size: 76px; font-weight: 800; color: var(--orange-d); line-height: 1; }
+  .stat .t { font-size: 24px; line-height: 1.3; color: var(--muted); margin-top: 10px; }
+  .pill { display: inline-block; padding: 4px 16px; border-radius: 999px; font-weight: 700; font-size: 24px; }
+
+  /* 1 title */
+  .title { background: #121212; color: #fff; padding: 96px; }
+  .title .kicker { color: #f4935f; }
+  .title .name { font-size: 150px; font-weight: 800; line-height: 1; margin: 22px 0 26px; letter-spacing: -.02em; }
+  .title .name span { color: var(--orange); }
+  .title .tag { font-size: 40px; line-height: 1.3; max-width: 900px; color: #e8e6df; }
+  .title .meta { position: absolute; left: 96px; bottom: 96px; font-size: 28px; line-height: 1.55; color: #c3c2b7; max-width: 860px; }
+  .title .meta strong { color: #fff; }
+  .title .hero { position: absolute; right: -140px; top: 120px; width: 1080px; transform: rotate(-3deg); border-radius: 20px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.6); border: 2px solid #333; }
+  .title .hero img { width: 100%; display: block; }
+  .title .glow { position: absolute; right: 120px; bottom: -260px; width: 900px; height: 600px; background: radial-gradient(closest-side, rgba(235,104,52,.45), transparent); }
+
+  /* 3 pipeline */
+  .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 18px; margin-bottom: 56px; }
+  .step { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 22px 22px 24px; position: relative; }
+  .step .k { width: 46px; height: 46px; border-radius: 50%; background: var(--orange); color: #fff; font-weight: 800; font-size: 26px; display: grid; place-items: center; margin-bottom: 12px; }
+  .step h2 { font-size: 30px; }
+  .step p { font-size: 22px; line-height: 1.35; margin: 0; color: var(--muted); }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 36px; }
+
+  /* 5 callouts */
+  .callout { border-left: 8px solid var(--orange); padding: 6px 0 6px 22px; margin-bottom: 26px; }
+  .callout p { margin: 0; font-size: 28px; }
+  .high { background: #fde7dc; color: #9d3b14; }
+  .normal { background: #dff3df; color: #0a6b0a; }
+
+  /* 7 columns */
+  .cols3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; }
+  .box { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 28px 30px; }
+  .box h2 { color: var(--orange-d); font-size: 28px; text-transform: uppercase; letter-spacing: .08em; }
+  .box li { font-size: 26px; margin-bottom: 12px; }
+  .links { margin-top: 40px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 40px; font-size: 26px; line-height: 1.5; }
+  .links b { color: var(--orange-d); }
+  .takeaway { position: absolute; left: 96px; right: 96px; bottom: 112px; background: #fff3ec; border: 1px solid #f7c1a3; border-radius: 16px; padding: 22px 30px; font-size: 30px; line-height: 1.35; }
+  .takeaway strong { color: var(--orange-d); }
+</style>
+</head>
+<body>
+
+<!-- 1. Title -->
+<section class="slide title">
+  <div class="kicker">NASA Space Apps Challenge 2026</div>
+  <div class="name">Pixel <span>Flame</span></div>
+  <div class="tag">Is this fire season normal? 26 years of NASA satellite fire data, harmonized into one burning calendar.</div>
+  <div class="glow"></div>
+  <div class="hero"><img src="../images/app_overview.png" alt="Pixel Flame web app"></div>
+  <div class="meta">
+    <strong>Team Pixel Flame</strong>: Ahmed Hashem · Zainab Ali<br>
+    <strong>Challenge</strong>: Harmonization of MODIS and VIIRS Hot Spots
+  </div>
+</section>
+
+<!-- 2. Problem -->
+<section class="slide">
+  <div class="kicker">The problem</div>
+  <h1>The fire record is split across satellites</h1>
+  <div class="grid2" style="grid-template-columns: 0.9fr 1.1fr;">
+    <ul>
+      <li><strong>MODIS</strong> (Terra, Aqua): 1 km pixels, since 2000. It is near the end of its life.</li>
+      <li><strong>VIIRS</strong> (S-NPP, NOAA-20, NOAA-21): 375 m pixels, since 2012. It sees <strong>~4× more hotspots</strong> of the same fires.</li>
+      <li>Raw counts jump when the sensor changes, and satellites fail: <strong>S-NPP stopped delivering data on 2 Nov 2026.</strong></li>
+    </ul>
+    <div>
+      <div class="dim" style="font-size:24px; margin-bottom:8px;">Yearly fire hotspots in Sudan</div>
+      <img src="sensor_chart.svg" alt="Raw MODIS, raw VIIRS and harmonized yearly hotspots in Sudan" style="width:100%;">
+    </div>
+  </div>
+  <div class="takeaway">Without harmonization, 2012 looks like a fire explosion and nobody can tell what is <em>normal</em>.
+    <strong>Pixel Flame puts every year on one scale (VIIRS 375 m), so 2001 and 2026 can be compared directly.</strong></div>
+  <div class="foot"><span>Pixel Flame · NASA Space Apps 2026</span><span>2 / 7</span></div>
+</section>
+
+<!-- 3. Harmonization -->
+<section class="slide">
+  <div class="kicker">Our solution, part 1</div>
+  <h1>Harmonized so the sensor no longer matters</h1>
+  <div class="steps">
+    <div class="step"><div class="k">1</div><h2>Clean</h2><p>Vegetation fires only, confident detections, gas flares and industry masked.</p></div>
+    <div class="step"><div class="k">2</div><h2>Fill gaps</h2><p>69 days when S-NPP was down are filled from NOAA-20 or MODIS.</p></div>
+    <div class="step"><div class="k">3</div><h2>Grid</h2><p>0.25° cells × 52 weeks, from Nov 2000 to last week.</p></div>
+    <div class="step"><div class="k">4</div><h2>Calibrate</h2><p>Month-specific ratios on sensor overlaps: Terra → Terra+Aqua → VIIRS; NOAA-20 → S-NPP.</p></div>
+    <div class="step"><div class="k">5</div><h2>Validate</h2><p>Predict years the model never saw, then compare with real VIIRS.</p></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="n">0.99</div><div class="t">weekly correlation when predicting 2018–2020 VIIRS from MODIS alone (Sudan, Nigeria)</div></div>
+    <div class="stat"><div class="n">0.998</div><div class="t">NOAA-20 → S-NPP calibration, which keeps the record going after S-NPP's loss</div></div>
+    <div class="stat"><div class="n">0</div><div class="t">differences between our 2026 API data and NASA's own country files (clip test)</div></div>
+    <div class="stat"><div class="n" style="color:var(--muted)">Honest</div><div class="t">Egypt's tiny farm fires are poorly seen by MODIS, so its early years are flagged low quality in the app</div></div>
+  </div>
+  <div class="takeaway"><strong>≈9.9 million satellite fire detections</strong> · Sudan, Nigeria and Egypt · 1 Nov 2000 → 11 Nov 2026, plus a live layer updated from NASA FIRMS.</div>
+  <div class="foot"><span>Pixel Flame · NASA Space Apps 2026</span><span>3 / 7</span></div>
+</section>
+
+<!-- 4. The app -->
+<section class="slide">
+  <div class="kicker">Our solution, part 2</div>
+  <h1>Any area, any period: its burning calendar in seconds</h1>
+  <div class="grid2" style="grid-template-columns: 0.78fr 1.22fr; gap: 56px;">
+    <ul>
+      <li><strong>Choose an area:</strong> a country, a shape drawn on the map, or a latitude/longitude and radius.</li>
+      <li><strong>Choose a period:</strong> any dates, or a preset.</li>
+      <li><strong>Read the calendar:</strong> weeks or months × 27 years, as counts or <em>vs. normal</em>, in colour-blind-safe colours.</li>
+      <li><strong>Download:</strong> every hotspot, weekly or monthly analytics (CSV), and any chart (PNG).</li>
+    </ul>
+    <div class="shot crop" style="height: 760px;"><img src="../images/card_calendar.png" alt="Burning calendar, weeks by years"></div>
+  </div>
+  <div class="foot"><span>Pixel Flame · NASA Space Apps 2026</span><span>4 / 7</span></div>
+</section>
+
+<!-- 5. Early warning -->
+<section class="slide">
+  <div class="kicker">What it tells you</div>
+  <h1>Is this normal? Early warning with 26 years behind it</h1>
+  <div class="grid2" style="grid-template-columns: 0.95fr 1.05fr; gap: 56px;">
+    <div>
+      <div class="callout"><p><span class="pill high">HIGH</span> <strong>Nigeria today:</strong> 7,000 hotspots this week vs. 3,155 typical (96th percentile), <strong>19 days before</strong> its usual season.</p></div>
+      <div class="callout"><p><span class="pill normal">NORMAL</span> <strong>Sudan:</strong> 904 separate fires in the last 24 h; in season, week 5 of 18.</p></div>
+      <div class="callout"><p><strong>Similar past years:</strong> Sudan's 2026 so far looks most like 2004.</p></div>
+      <div class="callout"><p><strong>Season shift:</strong> Sudan's season now comes 1.1 weeks later than in 2001–2010.</p></div>
+      <div class="callout" style="border-color: var(--blue);"><p>Plus an <strong>8-week outlook</strong> with uncertainty ranges tested on the area's own past.</p></div>
+    </div>
+    <div class="shot crop" style="height: 598px;"><img src="../images/card_similar_years.png" alt="Similar past years card"></div>
+  </div>
+  <div class="foot"><span>Pixel Flame · NASA Space Apps 2026 · live data as of 14 Nov 2026</span><span>5 / 7</span></div>
+</section>
+
+<!-- 6. Report + audiences -->
+<section class="slide">
+  <div class="kicker">Built for responders</div>
+  <h1>One page for the people who act</h1>
+  <div class="grid2" style="grid-template-columns: 0.62fr 1.38fr; gap: 64px;">
+    <div class="shot" style="width: 510px;"><img src="../images/report_nigeria.png" alt="Situation report for Nigeria"></div>
+    <div>
+      <ul>
+        <li><strong>Situation report</strong> for the current view, any country, or all countries. Print it or save it as a PDF.</li>
+        <li><strong>Emergency responders:</strong> warning level, separate fires, outlook.</li>
+        <li><strong>Firefighters:</strong> live hotspots by age, with fire power and directions.</li>
+        <li><strong>Land managers:</strong> season countdown, season shift, trends.</li>
+        <li><strong>Scientists:</strong> open method, validation, hotspot-level CSVs.</li>
+      </ul>
+      <p class="muted" style="margin-top: 26px;">Runs in any web browser: nothing to install, free to host.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Pixel Flame · NASA Space Apps 2026</span><span>6 / 7</span></div>
+</section>
+
+<!-- 7. Data, impact, future -->
+<section class="slide">
+  <div class="kicker">NASA open data → decisions</div>
+  <h1>From 26 years of satellite data to action on the ground</h1>
+  <div class="cols3">
+    <div class="box"><h2>NASA data</h2><ul>
+      <li>FIRMS active fires: MODIS C6.1 (Terra, Aqua)</li>
+      <li>VIIRS 375 m: S-NPP, NOAA-20, NOAA-21</li>
+      <li>Yearly archives, FIRMS API, near-real-time feeds</li></ul></div>
+    <div class="box"><h2>Impact</h2><ul>
+      <li>Spot an abnormal season early, while there is time to act</li>
+      <li>Plan patrols and resources for the critical period</li>
+      <li>Compare years and regions on one consistent scale</li></ul></div>
+    <div class="box"><h2>Next</h2><ul>
+      <li>Every country, then the whole globe</li>
+      <li>Automatic alerts when an area turns High</li>
+      <li>Add burned area and fire weather</li></ul></div>
+  </div>
+  <div class="links">
+    <div><b>Live app:</b> ahmhashem.github.io/Pixel_Flame<br><b>Code:</b> github.com/AhmHashem/Pixel_Flame</div>
+    <div><b>Team Pixel Flame:</b> Ahmed Hashem · Zainab Ali<br><b>Contact:</b> ahmedhashem0101@gmail.com · sham200785@gmail.com</div>
+  </div>
+  <div class="takeaway" style="background:#121212; border-color:#121212; color:#fff; font-size:38px; font-weight:700; text-align:center;">
+    "Is this fire season normal?" Now anyone can answer, with 26 years of NASA data behind it.</div>
+  <div class="foot"><span>Pixel Flame · NASA Space Apps 2026</span><span>7 / 7</span></div>
+</section>
+
+</body>
+</html>
