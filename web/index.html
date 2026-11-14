@@ -1,0 +1,186 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pixel Flame · Burning Calendar</title>
+  <meta name="description" content="Harmonized MODIS + VIIRS burning-activity calendar with live hotspots, early warning and downloads for any area and period.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1c1 3 4 4 4 8a4 4 0 0 1-8 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 0-7z' fill='%23eb6834'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css">
+  <link rel="stylesheet" href="style.css?v=2026-11-14c">
+</head>
+<body>
+<header>
+  <div class="title">
+    <h1>Pixel Flame <span class="muted">· Burning Calendar</span></h1>
+    <div class="sub" id="subtitle">Harmonized MODIS + VIIRS active-fire record with live hotspots</div>
+  </div>
+  <div class="controls">
+    <label class="sub" for="country">Country</label>
+    <select id="country"></select>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="map-col">
+    <div id="map"></div>
+    <div class="map-bar">
+      <strong>Live hotspots</strong>
+      <label><input type="checkbox" data-sensor="snpp" checked> VIIRS S-NPP <span class="muted" data-count="snpp"></span></label>
+      <label><input type="checkbox" data-sensor="noaa20" checked> NOAA-20 <span class="muted" data-count="noaa20"></span></label>
+      <label><input type="checkbox" data-sensor="noaa21" checked> NOAA-21 <span class="muted" data-count="noaa21"></span></label>
+      <label><input type="checkbox" data-sensor="modis" checked> MODIS <span class="muted" data-count="modis"></span></label>
+      <label><input type="checkbox" id="show-cells" checked> Historical grid</label>
+    </div>
+    <div class="legend-row" id="age-legend"></div>
+    <div class="legend-row" id="cell-legend"></div>
+    <form class="aoi-form" id="point-form" novalidate>
+      <strong>Area of interest</strong>
+      <label>Lat <input id="pt-lat" type="number" step="any" min="-90" max="90" placeholder="13.50" inputmode="decimal"></label>
+      <label>Lon <input id="pt-lon" type="number" step="any" min="-180" max="180" placeholder="30.20" inputmode="decimal"></label>
+      <label>Radius <input id="pt-rad" type="number" min="1" max="1000" step="any" value="50" inputmode="decimal"> km</label>
+      <button type="submit">Analyse point</button>
+      <span class="sub">or draw a shape with the tools on the map Â· clicking the map fills in lat/lon</span>
+    </form>
+    <div class="aoi-info"><span id="aoi-text"></span> <button id="reset-aoi" hidden>Use whole country</button></div>
+  </section>
+
+  <section class="panels">
+    <details class="card guide" id="guide" open>
+      <summary><h2>Who this is for and where to look</h2></summary>
+      <div class="guide-grid">
+        <div><strong>Early warning and emergency responders</strong>
+          <p>The early-warning card compares the last 7 days with the same week in every year since 2000, counts separate fires, and gives an 8-week outlook.</p></div>
+        <div><strong>Firefighters</strong>
+          <p>Click a live hotspot on the map for time since detection, fire power and directions. Download the live hotspots for your area.</p></div>
+        <div><strong>Land managers</strong>
+          <p>The critical period, the calendar (weeks or months) and the trend show when to prepare and whether burning is changing.</p></div>
+        <div><strong>Scientists</strong>
+          <p>Hotspot, weekly and monthly CSVs for any area and period, plus how MODIS and VIIRS were harmonized and tested (bottom of the page).</p></div>
+      </div>
+    </details>
+
+    <div class="cards3">
+      <div class="card" id="warning-card"></div>
+      <div class="card" id="season-card"></div>
+      <div class="card" id="trend-card"></div>
+    </div>
+
+    <div class="card" id="period-card">
+      <div class="card-head">
+        <div>
+          <h2>Period and downloads</h2>
+          <div class="sub">The calendar, yearly chart, unusual weeks and every download follow this period. "Normal" always uses all years.</div>
+        </div>
+      </div>
+      <div class="range-row">
+        <label>From <input type="date" id="date-from"></label>
+        <label>To <input type="date" id="date-to"></label>
+        <div class="seg" id="range-presets">
+          <button data-preset="all">All years</button>
+          <button data-preset="viirs">VIIRS era</button>
+          <button data-preset="last5">Last 5 years</button>
+          <button data-preset="last1">Last 12 months</button>
+        </div>
+      </div>
+      <div class="tiles" id="period-tiles"></div>
+      <div class="downloads">
+        <button id="dl-weekly" title="Weekly detections on the VIIRS scale, with typical value and percentile">Weekly analytics CSV</button>
+        <button id="dl-monthly" title="Monthly detections on the VIIRS scale, with typical value and percentile">Monthly analytics CSV</button>
+        <button id="dl-hotspots" title="Every satellite fire detection inside the area and period">Hotspots CSV</button>
+        <button id="dl-live" title="Live detections from the last 7 days inside the area">Live hotspots CSV</button>
+        <span class="sub" id="dl-status" role="status"></span>
+      </div>
+      <div class="note">Charts can be saved as PNG with the download icon at their top right.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Burning calendar</h2>
+          <div class="sub" id="cal-sub"></div>
+        </div>
+        <div class="seg-group">
+          <div class="seg" id="cal-grain">
+            <button data-grain="week" class="active">Weeks</button>
+            <button data-grain="month">Months</button>
+          </div>
+          <div class="seg" id="cal-mode">
+            <button data-mode="count" class="active">Detections</button>
+            <button data-mode="anomaly">Vs. normal</button>
+          </div>
+        </div>
+      </div>
+      <div id="calendar" class="chart"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Typical year and <span id="year-label"></span></h2>
+          <div class="sub">Detections per week. Grey bands show the range across all years; the shaded span is the critical period.</div>
+        </div>
+        <select id="year-select" aria-label="Year to compare"></select>
+      </div>
+      <div id="baseline" class="chart"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Outlook: next 8 weeks</h2>
+          <div class="sub" id="forecast-sub"></div>
+        </div>
+      </div>
+      <div id="forecast" class="chart"></div>
+      <div class="note" id="forecast-note"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Most unusual weeks</h2>
+          <div class="sub">Weeks in the selected period above the 90th percentile for that time of year, ranked by how far above typical.</div>
+        </div>
+      </div>
+      <div id="anomalies"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Detections per year</h2>
+          <div class="sub">Within the selected period. Partial years are marked in the tooltip.</div>
+        </div>
+      </div>
+      <div id="annual" class="chart"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>How MODIS and VIIRS were harmonized</h2>
+          <div class="sub" id="method-sub"></div>
+        </div>
+      </div>
+      <div class="tiles" id="method-tiles"></div>
+      <div id="method" class="chart"></div>
+      <div class="note" id="method-note"></div>
+    </div>
+  </section>
+</main>
+
+<footer id="footer">
+  Data: NASA FIRMS â€” MODIS Collection 6.1 (1 km) and VIIRS 375 m (S-NPP, NOAA-20, NOAA-21) active fire products.
+  Historical record from standard-processing yearly archives; live layer from the near-real-time 7-day files.
+  Basemap Â© OpenStreetMap contributors.
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
+<script src="analysis.js?v=2026-11-14c"></script>
+<script src="app.js?v=2026-11-14c"></script>
+</body>
+</html>
