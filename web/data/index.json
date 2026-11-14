@@ -1,0 +1,56 @@
+{
+ "countries": [
+  {
+   "name": "Sudan",
+   "file": "Sudan.json",
+   "bbox": [
+    8.6819,
+    21.8172,
+    22.07215,
+    38.40401
+   ],
+   "lastYear": 2026,
+   "lastDate": "2026-11-11"
+  },
+  {
+   "name": "Nigeria",
+   "file": "Nigeria.json",
+   "bbox": [
+    4.30434,
+    2.67153,
+    13.83471,
+    14.66737
+   ],
+   "lastYear": 2026,
+   "lastDate": "2026-11-11"
+  },
+  {
+   "name": "Egypt",
+   "file": "Egypt.json",
+   "bbox": [
+    21.99785,
+    25.15038,
+    31.58607,
+    36.41784
+   ],
+   "lastYear": 2026,
+   "lastDate": "2026-11-11"
+  }
+ ],
+ "api": {
+  "year": 2026,
+  "end": "2026-11-13",
+  "boundary": "Natural Earth 1:10m admin-0",
+  "spEnd": {
+   "MODIS": "2026-08-31",
+   "VIIRS_SNPP": "2026-07-31",
+   "VIIRS_NOAA20": "2026-07-31"
+  }
+ },
+ "nrt": {
+  "file": "nrt.json",
+  "start": "2026-11-07",
+  "end": "2026-11-14",
+  "region": "Northern and Central Africa"
+ }
+}
