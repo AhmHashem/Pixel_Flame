@@ -23,6 +23,14 @@ Demo countries: **Sudan, Nigeria and Egypt**. The record runs from 1 Nov 2000 to
   normal, with colour-blind-safe ramps checked with a colour-vision validator.
 - **Early warning:** the last 7 days compared with the same week in every past year, plus the number of
   separate fires in the last 24 hours and an 8-week outlook with backtested uncertainty.
+- **Similar past years:** for example *"2026 so far looks most like 2004, then 2002 and 2008"*, with what
+  happened in the rest of those years. These are described as analogs, not a forecast.
+- **Is the fire season changing?** Compares the season in 2001–2010 with 2016–2025 (centre, peak, start,
+  length, activity). A shift is called clear only when it exceeds year-to-year variation.
+- **Season countdown:** for example *"In season now: week 5 of 18, peak usually around 12 Nov"* or
+  *"Season usually starts in 19 days"*.
+- **Situation report:** a one-page printable summary (save as PDF) for the current view, any one country,
+  or all countries (an overview page plus one page each).
 - **Downloads:** every individual hotspot in the area and period, weekly and monthly analytics, live
   hotspots (CSV), and any chart as PNG.
 - **For four audiences:** emergency responders, firefighters, land managers and scientists. A short guide
@@ -129,6 +137,18 @@ docs/            screenshot
    - Fire clusters: hotspots within about 1 km are merged.
    - 8-week outlook: seasonal cycle plus an AR(1) anomaly term, with 80% ranges from the area's own
      backtests.
+   - Similar past years: complete past years ranked by the RMSE of log monthly totals over this year's
+     complete months.
+   - Season shift: the season centre is the activity-weighted circular mean week, so seasons that cross
+     New Year work. A shift between the two decades counts as clear only when it exceeds twice its
+     standard error from year-to-year scatter.
+
+## Versions
+
+- **v2.0.0:** similar past years, fire-season shift and countdown, and the printable situation report
+  (current view, one country, or all countries).
+- **v1.0.0:** harmonized calendar 2000–2026, early warning, outlook, area and period selection, CSV/PNG
+  downloads, and Codespaces support.
 
 ## Data and credits
 

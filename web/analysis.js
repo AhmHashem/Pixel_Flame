@@ -202,6 +202,81 @@
     return { samples, p50, mean };
   }
 
+  /* Historical similarity: past complete years whose first k months (log scale, so the peak months
+     do not dominate) are closest to the target year's first k complete months, plus how the rest of
+     those years unfolded. Analogs describe the past; they are not a forecast. */
+  function analogYears(M, firstYear, targetYi, top = 3) {
+    let k = 0;
+    while (k < 12 && !isNaN(M[targetYi * 12 + k])) k++;
+    const sum = a => a.reduce((x, y) => x + y, 0);
+    const cur = Array.from({ length: k }, (_, m) => M[targetYi * 12 + m]);
+    const years = [];
+    for (let yi = 0; yi < targetYi; yi++) {
+      const v = Array.from({ length: 12 }, (_, m) => M[yi * 12 + m]);
+      if (v.some(isNaN)) continue;
+      let ss = 0, sa = 0;
+      for (let m = 0; m < k; m++) {
+        const d = Math.log1p(v[m]) - Math.log1p(cur[m]);
+        ss += d * d; sa += Math.abs(d);
+      }
+      years.push({ yi, year: firstYear + yi, months: v, rmse: k ? Math.sqrt(ss / k) : Infinity,
+        meanDiff: k ? Math.expm1(sa / k) : NaN, ytd: sum(v.slice(0, k)), rest: sum(v.slice(k)), total: sum(v) });
+    }
+    if (k < 2 || !years.length) return { k, current: cur, analogs: [], nYears: years.length };
+    const ytdNow = sum(cur), ytd = years.map(y => y.ytd).sort((a, b) => a - b);
+    const rest = years.map(y => y.rest).sort((a, b) => a - b);
+    return {
+      k, current: cur, ytdNow, ytdPct: percentileOf(ytd, ytdNow), ytdMedian: quantile(ytd, 0.5),
+      restMedian: quantile(rest, 0.5), nYears: years.length,
+      analogs: [...years].sort((a, b) => a.rmse - b.rmse).slice(0, top),
+    };
+  }
+
+  const TAU = 2 * Math.PI;
+  /* Circular mean week (0..52) of weights over the 52 weeks, so a season that crosses New Year
+     (e.g. Oct-Feb) gets a sensible centre. R (0..1) is how concentrated the weights are. */
+  function circularMean(weights) {
+    let x = 0, y = 0, s = 0;
+    weights.forEach((v, k) => { x += v * Math.cos(TAU * k / W); y += v * Math.sin(TAU * k / W); s += v; });
+    return { week: ((Math.atan2(y, x) / TAU) * W + W) % W, R: s > 0 ? Math.hypot(x, y) / s : 0 };
+  }
+  /* a - b in weeks on the yearly circle, in -26..26 (negative = earlier). */
+  const weekDiff = (a, b) => ((((a - b) % W) + W + W / 2) % W) - W / 2;
+
+  /* Fire-season timing in two runs of complete years (e.g. 2001-2010 vs 2016-2025). The shift of the
+     season centre is compared with year-to-year scatter: `clear` only when it exceeds twice its
+     standard error (about 95%). */
+  function seasonShift(H, firstYear, early, recent) {
+    const era = ([y0, y1]) => {
+      const ys = [];
+      for (let y = y0; y <= y1; y++) {
+        const yi = y - firstYear;
+        if (yi < 0 || (yi + 1) * W > H.length) continue;
+        const w = Array.from({ length: W }, (_, k) => H[yi * W + k]), total = w.reduce((a, b) => a + b, 0);
+        if (total > 0) ys.push({ year: y, w, total, centre: circularMean(w).week });
+      }
+      if (ys.length < 3) return null;
+      const profile = Array.from({ length: W }, (_, k) => ys.reduce((a, r) => a + r.w[k] / r.total, 0) / ys.length);
+      let x = 0, y = 0;
+      for (const r of ys) { x += Math.cos(TAU * r.centre / W); y += Math.sin(TAU * r.centre / W); }
+      const rbar = Math.max(Math.hypot(x, y) / ys.length, 1e-9);
+      return { years: [y0, y1], n: ys.length, profile, season: criticalPeriod(profile),
+        centre: ((Math.atan2(y, x) / TAU) * W + W) % W, sd: Math.sqrt(-2 * Math.log(rbar)) * W / TAU,
+        meanTotal: ys.reduce((a, r) => a + r.total, 0) / ys.length };
+    };
+    const e = era(early), r = era(recent);
+    if (!e || !r) return null;
+    const shift = weekDiff(r.centre, e.centre), se = Math.sqrt(e.sd ** 2 / e.n + r.sd ** 2 / r.n);
+    const both = e.season && r.season;
+    return {
+      early: e, recent: r, centreShift: shift, se, clear: Math.abs(shift) >= 0.5 && Math.abs(shift) >= 2 * se,
+      peakShift: both ? weekDiff(r.season.peak, e.season.peak) : null,
+      startShift: both ? weekDiff(r.season.start, e.season.start) : null,
+      lengthChange: both ? r.season.length - e.season.length : null,
+      activityChange: e.meanTotal > 0 ? r.meanTotal / e.meanTotal - 1 : null,
+    };
+  }
+
   /* Number of separate fires among hotspots `idx`: detections in touching ~1 km cells are
      merged (union-find on a cellDeg grid with 8-neighbour links). */
   function fireClusters(lat, lon, idx, cellDeg = 0.01) {
@@ -233,6 +308,6 @@
 
   const api = { W, WEEK_MONTH, MONTH_DAYS, MONTH_SPLIT, MONTH_WEEKS, quantile, percentileOf, baseline, criticalPeriod,
     annualTotals, trend, anomalies, anomalyClass, fitForecast, forecast, warningLevel, monthly,
-    monthlyBaseline, fireClusters, pointInPolygon };
+    monthlyBaseline, analogYears, circularMean, weekDiff, seasonShift, fireClusters, pointInPolygon };
   if (typeof module !== 'undefined') module.exports = api; else root.FireAnalysis = api;
 })(this);

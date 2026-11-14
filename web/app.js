@@ -325,8 +325,8 @@ function prepNrt(n) {
 
 /* The harmonized scale is VIIRS S-NPP. If S-NPP is missing from the live files, fall back to
    NOAA-20 (same instrument), converted with this country's NOAA-20 -> S-NPP calibration. */
-function liveSource() {
-  const n = S.nrt, cal = S.ds.noaa20, month = FA.WEEK_MONTH[n.k];
+function liveSourceFor(ds) {
+  const n = S.nrt, cal = ds.noaa20, month = FA.WEEK_MONTH[n.k];
   const ok = c => n.per[c] && n.per[c].count > 0 && n.per[c].days >= 0.75 * n.days;
   if (ok('snpp')) return { code: 'snpp', factor: 1, days: n.per.snpp.days, label: SENSORS.snpp, converted: false };
   for (const code of ['noaa20', 'noaa21']) {
@@ -338,18 +338,23 @@ function liveSource() {
   return null;
 }
 
-async function loadCountry(file) {
-  document.body.style.cursor = 'progress';
-  const ds = await getJSON(file);
-  S.ds = ds;
-  hsCache.clear();
+/* Decode a country file's delta-encoded cell records. */
+function parseCells(ds) {
   const nYears = (ds.nWeeks - ds.firstWeek) / W;
-  S.cells = ds.cells.map(([ci, cj, dw, n, frp]) => {
+  return ds.cells.map(([ci, cj, dw, n, frp]) => {
     let w = 0;
     const weeks = dw.map(d => (w += d));
     return { ci, cj, key: ci + ',' + cj, lat: (ci + 0.5) * ds.grid, lon: (cj + 0.5) * ds.grid,
       weeks, n, frp, mean: n.reduce((a, b) => a + b, 0) / nYears };
   });
+}
+
+async function loadCountry(file) {
+  document.body.style.cursor = 'progress';
+  const ds = await getJSON(file);
+  S.ds = ds;
+  hsCache.clear();
+  S.cells = parseCells(ds);
   S.fillWeeks = new Set();
   for (const [a, b] of (ds.outages && ds.outages.snpp_runs) || []) {
     for (let t = parseDay(a); t <= parseDay(b); t += DAY) S.fillWeeks.add(dayToWeek(t));
@@ -418,44 +423,80 @@ function presetRanges() {
 }
 
 // ---------- analysis ----------
-function analyze() {
-  const ds = S.ds, H = new Float64Array(ds.nWeeks), F = new Float64Array(ds.nWeeks);
-  for (const c of S.sel) c.weeks.forEach((w, i) => { H[w] += c.n[i]; F[w] += c.frp[i]; });
-  S.H = H; S.F = F;
-  const empty = !S.sel.length || H.every(v => v === 0);
-  if (empty) {
-    S.B = null;
-    for (const id of ['warning-card', 'season-card', 'trend-card']) $('#' + id).innerHTML = '<div class="empty">No fire history in this area.</div>';
-    for (const id of ['calendar', 'baseline', 'forecast', 'annual']) chart(id).clear();
-    $('#anomalies').innerHTML = '';
-    $('#period-tiles').innerHTML = '<div class="empty">No fire history in this area.</div>';
-    return;
+const lastCompleteYear = ds => {
+  const ly = ds.firstYear + Math.floor((ds.nWeeks - 1) / W);
+  return ds.nWeeks % W ? ly - 1 : ly;
+};
+
+/* Where `nowMs` falls relative to the usual fire season (critical-period weeks). */
+function seasonCountdown(season, nowMs) {
+  if (!season) return null;
+  const d = new Date(nowMs), y = d.getUTCFullYear(), today = Date.UTC(y, d.getUTCMonth(), d.getUTCDate());
+  const k = Math.min(Math.floor((today - Date.UTC(y, 0, 1)) / DAY / 7), W - 1);
+  const startOf = (yy, kk) => Date.UTC(yy, 0, 1 + 7 * kk);
+  const endOf = (yy, kk) => (kk === W - 1 ? Date.UTC(yy, 11, 31) : startOf(yy, kk) + 6 * DAY);
+  const nextOf = (fn, kk) => [y, y + 1].map(yy => fn(yy, kk)).find(t => t >= today);
+  const nearestOf = kk => [y - 1, y, y + 1].map(yy => startOf(yy, kk)).reduce((a, b) => (Math.abs(b - today) < Math.abs(a - today) ? b : a));
+  const days = t => Math.round((t - today) / DAY);
+  const pos = (k - season.start + W) % W, endK = (season.start + season.length - 1) % W;
+  if (pos < season.length) {
+    const peak = nearestOf(season.peak), end = nextOf(endOf, endK);
+    return { inSeason: true, today, week: pos + 1, length: season.length, peak, peakDays: days(peak), end, endDays: days(end) };
   }
-  S.B = FA.baseline(H, ds.firstWeek);
-  S.M = FA.monthly(H, ds.firstWeek);
-  S.MB = FA.monthlyBaseline(S.M);
-  S.season = FA.criticalPeriod(S.B.mean);
-  S.totals = FA.annualTotals(H, ds.firstWeek, ds.firstYear);
-  S.model = FA.fitForecast(H, S.B, ds.firstWeek);
+  const start = nextOf(startOf, season.start);
+  return { inSeason: false, today, start, startDays: days(start), length: season.length };
+}
+
+/* Every statistic for one area of one country file. Used for the page and for the situation report
+   (which can cover countries that are not loaded on screen). */
+function computeStats(ds, sel) {
+  const H = new Float64Array(ds.nWeeks), F = new Float64Array(ds.nWeeks);
+  for (const c of sel) c.weeks.forEach((w, i) => { H[w] += c.n[i]; F[w] += c.frp[i]; });
+  if (!sel.length || H.every(v => v === 0)) return { empty: true, H, F };
+  const B = FA.baseline(H, ds.firstWeek), M = FA.monthly(H, ds.firstWeek);
+  const st = { empty: false, H, F, B, M, MB: FA.monthlyBaseline(M), season: FA.criticalPeriod(B.mean),
+    totals: FA.annualTotals(H, ds.firstWeek, ds.firstYear), model: FA.fitForecast(H, B, ds.firstWeek) };
   // Current conditions from the live feed, on the same S-NPP scale as the harmonized record
-  const n = S.nrt, src = liveSource(), inArea = [], last24 = [];
+  const keys = new Set(sel.map(c => c.key)), n = S.nrt, src = liveSourceFor(ds), inArea = [], last24 = [];
   let count = 0;
   for (let i = 0; i < n.lat.length; i++) {
-    if (!S.selKeys.has(n.cellKey[i])) continue;
+    if (!keys.has(n.cellKey[i])) continue;
     inArea.push(i);
     if (n.tMax - n.t[i] <= 1440) last24.push(i);
     if (src && n.s[i] === src.code) count++;
   }
   const value = src ? count * src.factor * 7 / Math.max(src.days, 1) : null;
-  S.now = { k: n.k, raw: count, all: inArea.length, src, value, warn: value == null ? null : FA.warningLevel(value, S.B, n.k),
+  st.now = { k: n.k, raw: count, all: inArea.length, src, value, warn: value == null ? null : FA.warningLevel(value, B, n.k),
     hot24: last24.length, fires24: FA.fireClusters(n.lat, n.lon, last24), fires7: FA.fireClusters(n.lat, n.lon, inArea) };
-  S.fc = FA.forecast(S.model, S.B, n.k, value == null ? S.B.p50[n.k] : value);
+  st.fc = FA.forecast(st.model, B, n.k, value == null ? B.p50[n.k] : value);
+  // This year vs past years, season timing then vs now, and where we are in the usual season
+  const curYear = ds.firstYear + Math.floor((ds.nWeeks - 1) / W), lc = lastCompleteYear(ds);
+  st.analogYear = curYear;
+  st.analog = FA.analogYears(M, ds.firstYear, curYear - ds.firstYear);
+  st.shift = FA.seasonShift(H, ds.firstYear, [ds.firstYear + 1, ds.firstYear + 10], [lc - 9, lc]);
+  st.countdown = seasonCountdown(st.season, n.tMax * 60000);
+  return st;
+}
+
+function analyze() {
+  const st = computeStats(S.ds, S.sel);
+  S.H = st.H; S.F = st.F;
+  if (st.empty) {
+    S.B = null;
+    for (const id of ['warning-card', 'season-card', 'trend-card']) $('#' + id).innerHTML = '<div class="empty">No fire history in this area.</div>';
+    for (const id of ['calendar', 'baseline', 'forecast', 'annual', 'analog', 'shift']) chart(id).clear();
+    for (const id of ['anomalies', 'analog-tiles', 'shift-tiles']) $('#' + id).innerHTML = '';
+    for (const id of ['analog-note', 'shift-note']) $('#' + id).textContent = '';
+    $('#period-tiles').innerHTML = '<div class="empty">No fire history in this area.</div>';
+    return;
+  }
+  Object.assign(S, st);
   renderAll();
 }
 
 function renderAll() {
   renderWarning(); renderSeason(); renderTrend();
-  renderPeriod(); renderBaseline(); renderForecast();
+  renderPeriod(); renderBaseline(); renderForecast(); renderAnalogs(); renderShift();
 }
 
 function renderPeriod() {
@@ -463,28 +504,59 @@ function renderPeriod() {
 }
 
 /* Complete calendar months that lie entirely inside the period. */
-function monthsInRange() {
-  const out = [], { w0, w1 } = S.range;
-  for (let yi = 0; yi < nYearsRec(); yi++) {
+function monthsInRange(M = S.M, ds = S.ds, range = S.range) {
+  const out = [], { w0, w1 } = range;
+  for (let yi = 0; yi < Math.ceil(ds.nWeeks / W); yi++) {
     for (let m = 0; m < 12; m++) {
-      const ks = MONTH_WEEKS[m], a = yi * W + ks[0], b = yi * W + ks[ks.length - 1], v = S.M[yi * 12 + m];
-      if (a >= w0 && b <= w1 && !isNaN(v)) out.push({ yi, y: S.ds.firstYear + yi, m, v, est: b < S.ds.viirsStart });
+      const ks = MONTH_WEEKS[m], a = yi * W + ks[0], b = yi * W + ks[ks.length - 1], v = M[yi * 12 + m];
+      if (a >= w0 && b <= w1 && !isNaN(v)) out.push({ yi, y: ds.firstYear + yi, m, v, est: b < ds.viirsStart });
     }
   }
   return out;
 }
 
 /* Per-year totals of the weeks inside the period. */
-function yearsInRange() {
-  const out = [], { w0, w1 } = S.range;
-  for (let yi = 0; yi < nYearsRec(); yi++) {
-    const a = Math.max(w0, yi * W, S.ds.firstWeek), b = Math.min(w1, yi * W + W - 1);
+function yearsInRange(H = S.H, ds = S.ds, range = S.range) {
+  const out = [], { w0, w1 } = range;
+  for (let yi = 0; yi < Math.ceil(ds.nWeeks / W); yi++) {
+    const a = Math.max(w0, yi * W, ds.firstWeek), b = Math.min(w1, yi * W + W - 1, ds.nWeeks - 1);
     if (a > b) continue;
     let total = 0;
-    for (let w = a; w <= b; w++) total += S.H[w];
-    out.push({ year: S.ds.firstYear + yi, total, partial: a > yi * W || b < yi * W + W - 1 });
+    for (let w = a; w <= b; w++) total += H[w];
+    out.push({ year: ds.firstYear + yi, total, partial: a > yi * W || b < yi * W + W - 1 });
   }
   return out;
+}
+
+/* Summary numbers for a period (used by the tiles and the situation report). */
+function periodStats(st, ds, range) {
+  const { H, B } = st, { w0, w1 } = range;
+  let total = 0, normal = 0, above = 0, weeks = 0;
+  for (let w = Math.max(w0, ds.firstWeek); w <= Math.min(w1, ds.nWeeks - 1); w++) {
+    const k = w % W;
+    total += H[w]; normal += B.mean[k]; weeks++;
+    if (H[w] > B.p90[k] && H[w] >= 3) above++;
+  }
+  const months = monthsInRange(st.M, ds, range), years = yearsInRange(H, ds, range), full = years.filter(y => !y.partial);
+  const maxBy = (list, f) => list.reduce((a, b) => (a == null || f(b) > f(a) ? b : a), null);
+  const tr = full.length >= 5 ? FA.trend(full) : null;
+  return {
+    total, normal, above, weeks, years, perYear: total / Math.max(weeks / W, 1 / W),
+    diff: normal > 0 ? (total / normal - 1) * 100 : 0,
+    busiestMonth: maxBy(months, m => m.v), busiestYear: maxBy(full.length ? full : years, y => y.total),
+    trend: tr ? { ...tr, y0: full[0].year, y1: full[full.length - 1].year } : null,
+    topWeek: FA.anomalies(H, B, Math.max(ds.firstWeek, w0), ds.firstYear, 1, 3, w1)[0] || null,
+  };
+}
+
+const relDays = d => (d === 0 ? 'today' : d > 0 ? `in ${d} day${d === 1 ? '' : 's'}` : `${-d} day${d === -1 ? '' : 's'} ago`);
+function countdownText(cd) {
+  if (!cd) return '';
+  const day = t => fmtDate(new Date(t), false);
+  return cd.inSeason
+    ? `<strong>In season now:</strong> week ${cd.week} of ${cd.length}. Peak usually around ${day(cd.peak)} (${relDays(cd.peakDays)}); ` +
+      `the season usually ends around ${day(cd.end)} (${relDays(cd.endDays)}).`
+    : `<strong>Season usually starts around ${day(cd.start)}: ${relDays(cd.startDays)}.</strong>`;
 }
 
 // ---------- cards ----------
@@ -523,8 +595,10 @@ function renderSeason() {
   const end = (s.start + s.length - 1) % W;
   $('#season-card').innerHTML = `
     <div class="stat-label">Critical period</div>
-    <div class="stat-value">${weekLabel(s.start)} – ${fmtDate(new Date(weekEndMs(end)), false)}</div>
-    <div class="stat-note">${s.length} weeks hold ${Math.round(s.share * 100)}% of typical yearly burning. Peak around ${weekLabel(s.peak)}.</div>`;
+    <div class="stat-value">${weekLabel(s.start)} – ${weekEndLabel(end)}</div>
+    <div class="stat-note">${s.length} weeks hold ${Math.round(s.share * 100)}% of typical yearly burning. Peak around ${weekLabel(s.peak)}.</div>
+    <div class="countdown">${countdownText(S.countdown)}</div>
+    <div class="note">As of ${fmtDate(new Date(S.countdown.today))}, the latest satellite data.</div>`;
 }
 
 function renderTrend() {
@@ -537,27 +611,124 @@ function renderTrend() {
       ${last.year}: ${fmt(last.total)} detections.</div>`;
 }
 
+const tile = (label, value, note) => `<div class="tile"><div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-note">${note}</div></div>`;
+
 function renderPeriodTiles() {
-  const { H, B } = S, { w0, w1 } = S.range;
-  let total = 0, normal = 0, above = 0, weeks = 0;
-  for (let w = Math.max(w0, S.ds.firstWeek); w <= w1; w++) {
-    const k = w % W;
-    total += H[w]; normal += B.mean[k]; weeks++;
-    if (H[w] > B.p90[k] && H[w] >= 3) above++;
-  }
-  const months = monthsInRange(), years = yearsInRange(), full = years.filter(y => !y.partial);
-  const maxBy = (list, f) => list.reduce((a, b) => (a == null || f(b) > f(a) ? b : a), null);
-  const bm = maxBy(months, m => m.v), by = maxBy(full.length ? full : years, y => y.total);
-  const tr = full.length >= 5 ? FA.trend(full) : null;
-  const diff = normal > 0 ? (total / normal - 1) * 100 : 0;
-  const tile = (label, value, note) => `<div class="tile"><div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-note">${note}</div></div>`;
+  const p = periodStats(S, S.ds, S.range), bm = p.busiestMonth, by = p.busiestYear, tr = p.trend;
   $('#period-tiles').innerHTML =
-    tile('Hotspots detected', fmt(total), `${weeks} weeks · ${fmt(total / Math.max(weeks / W, 1 / W))} per year (S-NPP scale)`) +
-    tile('Vs. average year', signPct(diff), `the same weeks in an average year: ${fmt(normal)}`) +
+    tile('Hotspots detected', fmt(p.total), `${p.weeks} weeks · ${fmt(p.perYear)} per year (S-NPP scale)`) +
+    tile('Vs. average year', signPct(p.diff), `the same weeks in an average year: ${fmt(p.normal)}`) +
     tile('Busiest month', bm ? `${MONTHS[bm.m]} ${bm.y}` : '–', bm ? `${fmt(bm.v)} detections${bm.est ? ' (est. from MODIS)' : ''}` : 'no complete month in period') +
     tile('Busiest year', by ? String(by.year) : '–', by ? `${fmt(by.total)} detections${by.partial ? ' (partial year)' : ''}` : '') +
-    tile('Unusual weeks', String(above), `above the 90th percentile for their time of year`) +
-    tile('Trend in period', tr ? `${signPct(tr.pctPerDecade)}/decade` : '–', tr ? `${full[0].year}–${full[full.length - 1].year}, Theil–Sen` : 'needs at least 5 full years');
+    tile('Unusual weeks', String(p.above), `above the 90th percentile for their time of year`) +
+    tile('Trend in period', tr ? `${signPct(tr.pctPerDecade)}/decade` : '–', tr ? `${tr.y0}–${tr.y1}, Theil–Sen` : 'needs at least 5 full years');
+}
+
+// ---------- similar past years and season shift ----------
+const weeksTxt = v => { const a = Math.abs(v); const s = a < 2 ? a.toFixed(1).replace(/\.0$/, '') : Math.round(a); return `${s} week${s === '1' || s === 1 ? '' : 's'}`; };
+const shiftTxt = v => (v == null ? '–' : Math.abs(v) < 0.5 ? 'about the same' : `${weeksTxt(v)} ${v < 0 ? 'earlier' : 'later'}`);
+const wkName = w => weekLabel(Math.round(w) % W);
+
+/* Plain-language summaries shared by the cards and the report. */
+function analogSummary(a, year) {
+  if (!a || !a.analogs.length) return null;
+  const months = a.k === 12 ? 'the whole year' : `${MONTHS[0]}–${MONTHS[a.k - 1]}`, restName = a.k < 12 ? `${MONTHS[a.k]}–${MONTHS[11]}` : null;
+  const names = a.analogs.map(x => x.year);
+  const rests = a.analogs.map(x => x.rest);
+  return {
+    months, restName, names,
+    headline: `${year} so far (${months}) looks most like ${names[0]}${names.length > 1 ? `, then ${names.slice(1).join(' and ')}` : ''}.`,
+    ytd: `${fmt(a.ytdNow)} hotspots so far: ${signPct((a.ytdNow / Math.max(a.ytdMedian, 1e-9) - 1) * 100)} vs. the median year for the same months (${pctTxt(a.ytdPct)} of ${a.nYears} years).`,
+    next: restName ? `In those years, ${restName} brought ${fmt(Math.min(...rests))}–${fmt(Math.max(...rests))} hotspots; a median year brings ${fmt(a.restMedian)}.` : '',
+  };
+}
+
+function shiftSummary(sh) {
+  if (!sh) return null;
+  const e = sh.early, r = sh.recent, eraE = `${e.years[0]}–${e.years[1]}`, eraR = `${r.years[0]}–${r.years[1]}`;
+  const verdict = Math.abs(sh.centreShift) < 0.5
+    ? `The timing of the fire season has not changed between ${eraE} and ${eraR}.`
+    : sh.clear
+      ? `The fire season now comes ${shiftTxt(sh.centreShift)} than in ${eraE} (season centre ${wkName(e.centre)} → ${wkName(r.centre)}).`
+      : `The season centre moved ${shiftTxt(sh.centreShift)}, but that is within normal year-to-year variation (±${(2 * sh.se).toFixed(1)} weeks), so it is not a clear shift.`;
+  return { eraE, eraR, verdict };
+}
+
+function renderAnalogs() {
+  const a = S.analog, sum = analogSummary(a, S.analogYear), base = baseChart();
+  if (!sum) {
+    $('#analog-tiles').innerHTML = `<div class="empty">Needs at least two complete months of ${S.analogYear}.</div>`;
+    $('#analog-note').textContent = '';
+    chart('analog').clear();
+    return;
+  }
+  $('#analog-sub').textContent = `Past years whose ${sum.months} pattern was closest to ${S.analogYear} so far (compared month by month on a log scale). They show what happened then; they are not a forecast.`;
+  $('#analog-head').innerHTML = `<strong>${sum.headline}</strong> ${sum.ytd} ${sum.next}`;
+  $('#analog-tiles').innerHTML = a.analogs.map((x, i) => tile(`${i + 1}. Closest match`, x.year + (x.year < 2012 ? ' *' : ''),
+    `months differ by ~${Math.round(x.meanDiff * 100)}% on average${sum.restName ? ` · ${sum.restName}: ${fmt(x.rest)}` : ''} · full year ${fmt(x.total)}`)).join('');
+  // Closest match = most salient step of the validated heat ramp; dashes repeat the identity for print/CVD
+  const heat = cssList('--heat'), dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const shades = dark ? [heat[5], heat[4], heat[2]] : [heat[4], heat[3], heat[1]], dashes = ['solid', 'dashed', 'dotted'];
+  const current = MONTHS.map((_, m) => (m < a.k ? a.current[m] : null));
+  chart('analog').setOption({
+    textStyle: base.textStyle,
+    toolbox: toolbox(`similar_years_${S.analogYear}`),
+    legend: { ...base.legend, data: [String(S.analogYear), ...a.analogs.map(x => String(x.year)), 'Median year'] },
+    tooltip: { ...base.tooltip, trigger: 'axis', valueFormatter: v => fmt(v) },
+    grid: { left: 52, right: 44, top: 40, bottom: 28 },
+    xAxis: { type: 'category', data: MONTHS, boundaryGap: false, ...base.axisCommon, splitLine: { show: false } },
+    yAxis: { type: 'value', ...base.axisCommon },
+    series: [
+      { name: 'Median year', type: 'line', data: S.MB.p50, symbol: 'none', lineStyle: { width: 2, color: cssVar('--band'), type: 'dashed' }, itemStyle: { color: cssVar('--band') } },
+      ...a.analogs.map((x, i) => ({ name: String(x.year), type: 'line', data: x.months, symbol: 'none',
+        lineStyle: { width: 2, color: shades[i], type: dashes[i] }, itemStyle: { color: shades[i] } })),
+      { name: String(S.analogYear), type: 'line', data: current, symbol: 'circle', symbolSize: 6,
+        lineStyle: { width: 3, color: cssVar('--series-1') }, itemStyle: { color: cssVar('--series-1'), borderColor: cssVar('--surface'), borderWidth: 2 },
+        endLabel: { show: true, formatter: '{a}', color: cssVar('--text'), fontWeight: 600 } },
+    ],
+  }, true);
+  $('#analog-note').textContent = `Compared on complete months only. Years marked * are reconstructed from MODIS. ` +
+    `The period selected above does not change this card: it always uses the whole record.`;
+}
+
+function renderShift() {
+  const sh = S.shift, sum = shiftSummary(sh), base = baseChart();
+  if (!sum) {
+    $('#shift-tiles').innerHTML = '<div class="empty">Not enough complete years with fires in this area to compare.</div>';
+    $('#shift-note').textContent = '';
+    $('#shift-head').textContent = '';
+    chart('shift').clear();
+    return;
+  }
+  const e = sh.early, r = sh.recent, es = e.season, rs = r.season;
+  $('#shift-sub').textContent = `Average fire season in ${sum.eraE} compared with ${sum.eraR}, from the harmonized record.`;
+  $('#shift-head').innerHTML = `<strong>${sum.verdict}</strong>`;
+  $('#shift-tiles').innerHTML =
+    tile('Season centre', `${wkName(e.centre)} → ${wkName(r.centre)}`, shiftTxt(sh.centreShift)) +
+    (es && rs ? tile('Peak week', `${weekLabel(es.peak)} → ${weekLabel(rs.peak)}`, shiftTxt(sh.peakShift)) +
+      tile('Season start', `${weekLabel(es.start)} → ${weekLabel(rs.start)}`, shiftTxt(sh.startShift)) +
+      tile('Season length', `${es.length} → ${rs.length} weeks`, sh.lengthChange === 0 ? 'unchanged' : `${sh.lengthChange > 0 ? '+' : '−'}${Math.abs(sh.lengthChange)} weeks`) : '') +
+    tile('Yearly activity', sh.activityChange == null ? '–' : signPct(sh.activityChange * 100), `${sum.eraR} vs. ${sum.eraE}`);
+  const pct = p => p.map(v => +(v * 100).toFixed(2));
+  chart('shift').setOption({
+    textStyle: base.textStyle,
+    toolbox: toolbox('season_shift'),
+    legend: { ...base.legend, data: [sum.eraE, sum.eraR] },
+    tooltip: { ...base.tooltip, trigger: 'axis', formatter: ps => `<strong>Week of ${weekLabel(ps[0].dataIndex)}</strong><br>` +
+      ps.map(p => `${p.seriesName}: ${p.value.toFixed(1)}% of the year's burning`).join('<br>') },
+    grid: { left: 48, right: 12, top: 40, bottom: 28 },
+    xAxis: { type: 'category', boundaryGap: false, data: monthTicks.map((_, k) => k), ...base.axisCommon, splitLine: { show: false },
+      axisLabel: { ...base.axisCommon.axisLabel, interval: 0, formatter: (v, i) => monthTicks[i] } },
+    yAxis: { type: 'value', ...base.axisCommon, axisLabel: { ...base.axisCommon.axisLabel, formatter: '{value}%' } },
+    series: [
+      { name: sum.eraE, type: 'line', data: pct(e.profile), symbol: 'none', lineStyle: { width: 2, color: cssVar('--band'), type: 'dashed' }, itemStyle: { color: cssVar('--band') } },
+      { name: sum.eraR, type: 'line', data: pct(r.profile), symbol: 'none', lineStyle: { width: 2.5, color: cssVar('--series-1') }, itemStyle: { color: cssVar('--series-1') },
+        areaStyle: { color: cssVar('--series-1'), opacity: 0.08 } },
+    ],
+  }, true);
+  $('#shift-note').textContent = `Season centre: the activity-weighted average week, computed on the yearly circle so seasons that cross New Year work. ` +
+    `A shift counts as clear only when it is larger than twice its uncertainty from year-to-year variation (±${(2 * sh.se).toFixed(1)} weeks here).` +
+    (S.ds.validation.monthly_model.r_log < 0.6 ? ' This country\'s MODIS-era reconstruction is low quality, so compare the decades with care.' : '');
 }
 
 // ---------- charts ----------
@@ -783,6 +954,209 @@ function renderMethod() {
     (out && out.days ? `Days when S-NPP delivered (almost) no data while other satellites saw fires are filled with NOAA-20 converted to the S-NPP scale, or with MODIS before 2023; weeks with such days are left out of every fit. Most recent: ${recent}.` : '');
 }
 
+// ---------- situation report ----------
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const weekEndLabel = k => fmtDate(new Date(k === W - 1 ? Date.UTC(2001, 11, 31) : Date.UTC(2001, 0, 7 * k + 7)), false);
+const reportCache = new Map();
+
+async function reportDataset(file) {
+  const c = S.idx.countries.find(x => x.file === file);
+  if (c && S.ds && c.name === S.ds.name) return { ds: S.ds, cells: S.cells };
+  if (!reportCache.has(file)) {
+    const ds = await getJSON(file);
+    reportCache.set(file, { ds, cells: parseCells(ds) });
+  }
+  return reportCache.get(file);
+}
+
+function openReportDialog() {
+  const d = $('#report-dialog');
+  $('#rd-period').textContent = `${fmtDate(new Date(S.range.d0))} – ${fmtDate(new Date(S.range.d1))}`;
+  const current = S.aoi ? `${S.aoiLabel} in ${S.ds.name}` : `all of ${S.ds.name}`;
+  $('#rd-scopes').innerHTML =
+    `<label><input type="radio" name="rd-scope" value="current" checked> Current view (${esc(current)})</label>` +
+    S.idx.countries.map(c => `<label><input type="radio" name="rd-scope" value="${esc(c.file)}"> ${esc(c.name)}, whole country</label>`).join('') +
+    `<label><input type="radio" name="rd-scope" value="all"> All countries: overview page plus one page each</label>`;
+  d.returnValue = '';
+  d.showModal();
+}
+
+async function createReport(scope) {
+  const buttons = [$('#report-btn'), $('#dl-report')];
+  buttons.forEach(b => { b.disabled = true; });
+  status('Preparing the situation report…');
+  try {
+    const items = [];
+    if (scope === 'current') {
+      items.push({ name: S.aoi ? S.aoiLabel : S.ds.name, country: S.ds.name, ds: S.ds, st: S.B ? S : { empty: true },
+        area: S.aoi ? `${S.sel.length} grid cells in ${S.ds.name}` : `Whole country (${S.cells.length} grid cells)` });
+    } else {
+      for (const c of S.idx.countries.filter(x => scope === 'all' || x.file === scope)) {
+        const { ds, cells } = await reportDataset(c.file);
+        items.push({ name: c.name, country: c.name, ds, st: computeStats(ds, cells), area: `Whole country (${cells.length} grid cells)` });
+      }
+    }
+    const pages = (scope === 'all' ? [reportOverview(items)] : []).concat(items.map(reportPage));
+    $('#report-pages').innerHTML = pages.join('');
+    $('#report-view').hidden = false;
+    $('#report-view').scrollTop = 0;
+    document.body.classList.add('report-open');
+    status('');
+  } catch (err) {
+    console.error(err);
+    status('Report failed: ' + err.message);
+  } finally {
+    buttons.forEach(b => { b.disabled = false; });
+  }
+}
+
+function closeReport() {
+  $('#report-view').hidden = true;
+  document.body.classList.remove('report-open');
+}
+
+const rpBox = (k, v, n) => `<div class="rp-box"><div class="rp-k">${k}</div><div class="rp-v">${v}</div><div class="rp-n">${n}</div></div>`;
+const rpKv = rows => `<table class="rp-kv">${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}</table>`;
+const rpLevel = st => {
+  const lvl = st.now && st.now.warn ? st.now.warn.level : null;
+  return { icon: lvl ? ICONS[lvl] : ICONS.unknown, text: lvl ? LEVEL_TEXT[lvl] : 'No live data' };
+};
+
+function reportHead(title, meta, statusHtml = '') {
+  return `<div class="rp-head"><div><div class="rp-brand">Pixel Flame · Fire situation report</div>
+    <h1>${esc(title)}</h1><div class="rp-meta">${meta}</div></div>${statusHtml}</div>`;
+}
+
+function reportMeta(ds, extra = '') {
+  const r = S.range, live = S.idx.nrt;
+  return `${extra}Period ${fmtDate(new Date(r.d0))} – ${fmtDate(new Date(r.d1))} · calendar data to ${fmtDate(new Date(weekEndMs(ds.nWeeks - 1)))} · ` +
+    `live satellite data ${esc(live.start)} → ${esc(live.end)} · generated ${fmtDate(new Date())}`;
+}
+
+function reportFoot(ds) {
+  const lowQ = ds && ds.validation.monthly_model.r_log < 0.6;
+  return `<div class="rp-foot">Hotspots are satellite fire detections on the VIIRS 375 m scale (MODIS before 2012 converted to it), not confirmed
+    fires or burned area. "Separate fires" merges hotspots within about 1 km. Typical values and percentiles use every year since 2000. The outlook
+    is statistical (seasonal cycle plus the current anomaly) and similar years describe the past; neither predicts individual fires.
+    ${lowQ ? `<strong>${esc(ds.name)}: the MODIS-era (pre-2012) reconstruction is low quality; treat early years with care.</strong>` : ''}
+    Data: NASA FIRMS (MODIS C6.1, VIIRS S-NPP / NOAA-20 / NOAA-21). Made with Pixel Flame.</div>`;
+}
+
+/* Typical year (10-90% band and median) with this year's weeks and the live week, as print-friendly SVG. */
+function svgTypicalYear(st, ds) {
+  const Wd = 700, Ht = 140, L = 46, R = 10, T = 6, Bt = 18, B = st.B;
+  const yi = Math.floor((ds.nWeeks - 1) / W), year = ds.firstYear + yi;
+  const cur = Array.from({ length: W }, (_, k) => { const w = yi * W + k; return w >= ds.firstWeek && w < ds.nWeeks ? st.H[w] : null; });
+  const nowV = st.now.value;
+  const top = Math.max(...B.p90, ...cur.filter(v => v != null), nowV || 0, 1) * 1.1;
+  const x = k => L + (k / (W - 1)) * (Wd - L - R), y = v => T + (1 - v / top) * (Ht - T - Bt);
+  const pts = arr => arr.map((v, k) => (v == null ? null : `${x(k).toFixed(1)},${y(v).toFixed(1)}`));
+  const path = arr => { let d = '', pen = false; pts(arr).forEach(p => { if (!p) { pen = false; return; } d += (pen ? 'L' : 'M') + p; pen = true; }); return d; };
+  const band = `M${pts(B.p90).join('L')}L${pts(B.p10).reverse().join('L')}Z`;
+  const grid = [0, 0.5, 1].map(f => { const v = (top / 1.1) * f, yy = y(v).toFixed(1);
+    return `<line x1="${L}" x2="${Wd - R}" y1="${yy}" y2="${yy}" class="rc-grid"/><text x="${L - 6}" y="${(+yy + 3).toFixed(1)}" class="rc-ax" text-anchor="end">${fmt(v)}</text>`; }).join('');
+  const months = monthTicks.map((m, k) => (m ? `<text x="${x(k).toFixed(1)}" y="${Ht - 5}" class="rc-ax">${m}</text>` : '')).join('');
+  const now = nowV != null ? `<circle cx="${x(st.now.k).toFixed(1)}" cy="${y(nowV).toFixed(1)}" r="4.5" class="rc-now"/>` : '';
+  const partial = ds.nWeeks % W ? ` (to ${fmtDate(new Date(weekEndMs(ds.nWeeks - 1)), false)})` : '';
+  return `<svg class="rchart" viewBox="0 0 ${Wd} ${Ht}" role="img" aria-label="Weekly hotspots in ${year} compared with the typical year">
+    ${grid}<path d="${band}" class="rc-band"/><path d="${path(B.p50)}" class="rc-med"/><path d="${path(cur)}" class="rc-cur"/>${now}${months}</svg>
+    <div class="rc-legend"><span><i class="sw band"></i>Typical range (10–90%)</span><span><i class="sw med"></i>Median</span>
+    <span><i class="sw cur"></i>${year}${partial}</span>${nowV != null ? '<span><i class="sw now"></i>Last 7 days</span>' : ''}</div>`;
+}
+
+function svgYearBars(years) {
+  if (!years.length) return '';
+  const Wd = 700, Ht = 82, L = 46, R = 10, T = 6, Bt = 16, n = years.length;
+  const top = Math.max(...years.map(d => d.total), 1) * 1.1, bw = (Wd - L - R) / n, step = n > 14 ? 5 : n > 7 ? 2 : 1;
+  const bars = years.map((d, i) => {
+    const h = (d.total / top) * (Ht - T - Bt), xx = L + i * bw + bw * 0.15;
+    const label = i % step === 0 || i === n - 1 ? `<text x="${(xx + bw * 0.35).toFixed(1)}" y="${Ht - 4}" class="rc-ax" text-anchor="middle">${d.year}</text>` : '';
+    return `<rect x="${xx.toFixed(1)}" y="${(Ht - Bt - h).toFixed(1)}" width="${(bw * 0.7).toFixed(1)}" height="${h.toFixed(1)}" rx="2" class="${d.year < 2012 ? 'rc-est' : 'rc-obs'}${d.partial ? ' rc-part' : ''}"/>${label}`;
+  }).join('');
+  const yTop = (T + (1 - 1 / 1.1) * (Ht - T - Bt)).toFixed(1);
+  return `<svg class="rchart" viewBox="0 0 ${Wd} ${Ht}" role="img" aria-label="Hotspots per year in the period">
+    <line x1="${L}" x2="${Wd - R}" y1="${yTop}" y2="${yTop}" class="rc-grid"/><text x="${L - 6}" y="${(+yTop + 3).toFixed(1)}" class="rc-ax" text-anchor="end">${fmt(top / 1.1)}</text>
+    <line x1="${L}" x2="${Wd - R}" y1="${Ht - Bt}" y2="${Ht - Bt}" class="rc-grid"/>${bars}</svg>
+    <div class="rc-legend"><span><i class="sw est"></i>Estimated from MODIS</span><span><i class="sw obs"></i>Observed by VIIRS</span><span>Pale bars: partial years</span></div>`;
+}
+
+function reportPage(it) {
+  const { ds, st } = it;
+  if (st.empty) return `<section class="report-page">${reportHead(it.name, reportMeta(ds, `${esc(it.area)}<br>`))}<p>No fire history in this area.</p>${reportFoot(ds)}</section>`;
+  const B = st.B, now = st.now, s = st.season, lv = rpLevel(st), p = periodStats(st, ds, S.range);
+  const statusHtml = `<div class="rp-status">${lv.icon}<div><div class="rp-k">Early warning · last 7 days</div><div class="rp-v">${lv.text}</div></div></div>`;
+  const pMax = Math.max(...st.fc.weeks.slice(0, 4).map(w => w.pAbove));
+  const boxes = rpBox('Last 7 days', now.value == null ? '–' : fmt(now.value),
+      now.value == null ? 'no live VIIRS data' : `hotspots (S-NPP scale) vs. typical ${fmt(B.p50[now.k])} for this week · ${pctTxt(now.warn.pct)}${now.src.converted ? ` · from ${now.src.label}` : ''}`) +
+    rpBox('Separate fires', fmt(now.fires24), `in the last 24 h (${fmt(now.hot24)} hotspots) · ${fmt(now.fires7)} over 7 days`) +
+    rpBox('Fire season', s ? `${weekLabel(s.start)} – ${weekEndLabel((s.start + s.length - 1) % W)}` : 'No clear season', s ? countdownText(st.countdown).replace(/<\/?strong>/g, '') : '');
+  const bm = p.busiestMonth, by = p.busiestYear;
+  const periodRows = [
+    ['Hotspots detected', `${fmt(p.total)} <span class="rp-dim">(${fmt(p.perYear)} per year)</span>`],
+    ['Vs. average year', `${signPct(p.diff)} <span class="rp-dim">(same weeks, average year: ${fmt(p.normal)})</span>`],
+    ['Busiest month', bm ? `${MONTHS[bm.m]} ${bm.y} · ${fmt(bm.v)}${bm.est ? ' <span class="rp-dim">(est.)</span>' : ''}` : '–'],
+    ['Busiest year', by ? `${by.year} · ${fmt(by.total)}${by.partial ? ' <span class="rp-dim">(partial)</span>' : ''}` : '–'],
+    ['Unusual weeks', `${p.above} above the 90th percentile`],
+    ['Most unusual week', p.topWeek ? `${fmtDate(weekStart(p.topWeek.year, p.topWeek.k))} · ${p.topWeek.ratio.toFixed(1)}× typical` : '–'],
+    ['Trend', p.trend ? `${signPct(p.trend.pctPerDecade)} per decade <span class="rp-dim">(${p.trend.y0}–${p.trend.y1})</span>` : '–'],
+  ];
+  const sh = st.shift, shs = shiftSummary(sh);
+  const shiftHtml = !sh ? '<p class="rp-dim">Not enough complete years to compare.</p>' : rpKv([
+    ['Season centre', `${wkName(sh.early.centre)} → ${wkName(sh.recent.centre)} · ${shiftTxt(sh.centreShift)}`],
+    ...(sh.early.season && sh.recent.season ? [
+      ['Peak week', `${weekLabel(sh.early.season.peak)} → ${weekLabel(sh.recent.season.peak)} · ${shiftTxt(sh.peakShift)}`],
+      ['Season start', `${weekLabel(sh.early.season.start)} → ${weekLabel(sh.recent.season.start)} · ${shiftTxt(sh.startShift)}`],
+      ['Season length', `${sh.early.season.length} → ${sh.recent.season.length} weeks`]] : []),
+    ['Yearly activity', sh.activityChange == null ? '–' : signPct(sh.activityChange * 100)],
+  ]) + `<p class="rp-verdict">${shs.verdict}${ds.validation.monthly_model.r_log < 0.6 ? ' <em>2001–2010 is reconstructed from MODIS at low quality here, so treat this comparison with care.</em>' : ''}</p>`;
+  const a = st.analog, as = analogSummary(a, st.analogYear);
+  const analogHtml = !as ? `<p class="rp-dim">Needs at least two complete months of ${st.analogYear}.</p>` :
+    `<p class="rp-verdict"><strong>${as.headline}</strong> ${as.ytd}</p>
+     <table class="rp-table"><tr><th>Year</th><th>Months differ</th>${as.restName ? `<th>${as.restName}</th>` : ''}<th>Full year</th></tr>
+     ${a.analogs.map(x => `<tr><td>${x.year}${x.year < 2012 ? ' *' : ''}</td><td>~${Math.round(x.meanDiff * 100)}%</td>${as.restName ? `<td>${fmt(x.rest)}</td>` : ''}<td>${fmt(x.total)}</td></tr>`).join('')}
+     ${as.restName ? `<tr class="rp-dim"><td>Median year</td><td></td><td>${fmt(a.restMedian)}</td><td></td></tr>` : ''}</table>`;
+  const fw = st.fc.weeks.slice(0, 6);
+  const outlook = `<table class="rp-table rp-outlook"><tr><th>Week of</th>${fw.map(w => `<th>${weekLabel(w.k)}</th>`).join('')}</tr>
+    <tr><td>Expected</td>${fw.map(w => `<td>${fmt(w.p50)}</td>`).join('')}</tr>
+    <tr><td>80% range</td>${fw.map(w => `<td>${fmt(w.p10)}–<br>${fmt(w.p90)}</td>`).join('')}</tr>
+    <tr><td>Above normal</td>${fw.map(w => `<td>${Math.round(w.pAbove * 100)}%</td>`).join('')}</tr></table>`;
+  return `<section class="report-page">
+    ${reportHead(it.name, reportMeta(ds, `${esc(it.area)}<br>`), statusHtml)}
+    <div class="rp-grid3">${boxes}</div>
+    <h2>This year compared with the typical year</h2>${svgTypicalYear(st, ds)}
+    <div class="rp-grid2"><div><h2>Selected period</h2>${rpKv(periodRows)}</div><div><h2>Is the season changing?</h2>${shiftHtml}</div></div>
+    <div class="rp-grid2"><div><h2>Similar past years</h2>${analogHtml}</div>
+      <div><h2>Outlook, next 6 weeks</h2>${outlook}<p class="rp-dim">Chance of above-normal activity in the next 4 weeks: up to ${Math.round(pMax * 100)}%.</p></div></div>
+    <h2>Hotspots per year in the period</h2>${svgYearBars(p.years)}
+    ${reportFoot(ds)}</section>`;
+}
+
+function reportOverview(items) {
+  const rows = items.map(it => {
+    const st = it.st;
+    if (st.empty) return `<tr><td><strong>${esc(it.name)}</strong></td><td colspan="7">No fire history</td></tr>`;
+    const now = st.now, lv = rpLevel(st), p = periodStats(st, it.ds, S.range), cd = st.countdown, a = st.analog;
+    return `<tr><td><strong>${esc(it.name)}</strong></td>
+      <td class="rp-lvl">${lv.icon} ${lv.text}</td>
+      <td>${now.value == null ? '–' : `${fmt(now.value)} vs. ${fmt(st.B.p50[now.k])}<br><span class="rp-dim">${pctTxt(now.warn.pct)}</span>`}</td>
+      <td>${fmt(now.fires24)}</td>
+      <td>${cd ? (cd.inSeason ? `In season<br><span class="rp-dim">week ${cd.week} of ${cd.length}</span>` : `Starts ${relDays(cd.startDays)}`) : '–'}</td>
+      <td>${fmt(p.total)}<br><span class="rp-dim">${signPct(p.diff)} vs. average</span></td>
+      <td>${a && a.analogs.length ? a.analogs[0].year : '–'}</td>
+      <td>${st.shift ? `${shiftTxt(st.shift.centreShift)}${st.shift.clear || Math.abs(st.shift.centreShift) < 0.5 ? '' : '<br><span class="rp-dim">not a clear shift</span>'}` +
+        `${it.ds.validation.monthly_model.r_log < 0.6 ? '<br><span class="rp-dim">early years low quality</span>' : ''}` : '–'}</td></tr>`;
+  }).join('');
+  const raised = items.filter(it => !it.st.empty && it.st.now.warn && it.st.now.warn.level !== 'normal').length;
+  return `<section class="report-page">
+    ${reportHead('All countries: overview', reportMeta(items[0].ds))}
+    <p class="rp-verdict"><strong>${raised === 0 ? 'Fire activity is within the normal range for this time of year in every country.' :
+      `${raised} of ${items.length} countries show activity above normal for this time of year.`}</strong>
+      Each country has its own page after this one.</p>
+    <table class="rp-table rp-overview"><tr><th>Country</th><th>Early warning</th><th>Last 7 days vs. typical</th><th>Separate fires, 24 h</th>
+      <th>Fire season</th><th>Hotspots in period</th><th>Most similar year</th><th>Season timing since 2001–2010</th></tr>${rows}</table>
+    ${reportFoot(null)}</section>`;
+}
+
 // ---------- CSV ----------
 function csv(rows) { return new Blob([rows.join('\n') + '\n'], { type: 'text/csv' }); }
 
@@ -958,6 +1332,16 @@ async function init() {
   $('#dl-monthly').onclick = downloadMonthly;
   $('#dl-hotspots').onclick = downloadHotspots;
   $('#dl-live').onclick = downloadLive;
+  $('#report-btn').onclick = openReportDialog;
+  $('#dl-report').onclick = openReportDialog;
+  $('#report-dialog').addEventListener('close', () => {
+    if ($('#report-dialog').returnValue !== 'create') return;
+    const v = document.querySelector('input[name="rd-scope"]:checked');
+    createReport(v ? v.value : 'current');
+  });
+  $('#report-print').onclick = () => window.print();
+  $('#report-close').onclick = closeReport;
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#report-view').hidden) closeReport(); });
   $('#show-cells').onchange = drawCells;
   $('#year-select').onchange = e => { S.year = +e.target.value; renderBaseline(); };
   const fromInputs = () => setRange(parseDay($('#date-from').value), parseDay($('#date-to').value));
